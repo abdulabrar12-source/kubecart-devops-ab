@@ -1,0 +1,13 @@
+# DEPRECATED — Original Todo API NodePort service (name: todo-api, namespace: default, nodePort: 30080).
+# Superseded entirely by KubeCart per-service Service manifests.
+# Run: git rm k8s/service.yaml
+
+spec:
+  type: NodePort
+  selector:
+    app: todo-api
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+      nodePort: 30080

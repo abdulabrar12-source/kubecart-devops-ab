@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: identity-configmap
+  namespace: demo
+data:
+  # Port is part of DB_HOST for SQL Server: "host,port" syntax.
+  DB_HOST: "host.minikube.internal,1433"
+  DB_NAME: "KubeCart_Identity"

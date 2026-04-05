@@ -1,0 +1,10 @@
+# DEPRECATED — Single-service ConfigMap (name: app-config, namespace: demo).
+# Had DB_NAME: master (wrong for KubeCart) and no per-service DB names.
+#
+# Replaced by per-service ConfigMaps in k8s/kubecart/:
+#   identity-configmap  (DB_NAME: KubeCart_Identity)
+#   catalog-configmap   (DB_NAME: KubeCart_Catalog)
+#   order-configmap     (DB_NAME: KubeCart_Orders, CATALOG_SERVICE_URL: http://catalog-service)
+#   frontend-configmap  (IDENTITY_SERVICE_HOST, CATALOG_SERVICE_HOST, ORDER_SERVICE_HOST)
+#
+# Safe to delete this file once git mv k8s/demo k8s/kubecart is complete.

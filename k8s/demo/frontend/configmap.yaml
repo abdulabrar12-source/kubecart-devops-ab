@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-configmap
+  namespace: demo
+data:
+  # nginx envsubst replaces these at container startup via
+  # /etc/nginx/templates/app.conf.template → /etc/nginx/conf.d/app.conf.
+  # Values are K8s service names (ClusterIP DNS, port 80 = default HTTP).
+  IDENTITY_SERVICE_HOST: "identity-service"
+  CATALOG_SERVICE_HOST:  "catalog-service"
+  ORDER_SERVICE_HOST:    "order-service"

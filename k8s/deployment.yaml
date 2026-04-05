@@ -1,0 +1,48 @@
+# DEPRECATED — Original Todo API deployment (name: todo-api, namespace: default).
+# Predates the demo namespace. Superseded entirely by KubeCart per-service deployments.
+# Run: git rm k8s/deployment.yaml
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: todo-api
+  template:
+    metadata:
+      labels:
+        app: todo-api
+    spec:
+      containers:
+        - name: todo-api
+          image: api-image:latest
+          imagePullPolicy: Never        # image loaded directly into Minikube
+          ports:
+            - containerPort: 80
+          envFrom:
+            - configMapRef:
+                name: todo-api-config
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: todo-api-secret
+                  key: DB_PASSWORD
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"

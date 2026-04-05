@@ -1,0 +1,26 @@
+# ── OS / Editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ── .NET build artefacts ──────────────────────────────────────────────────────
+**/bin/
+**/obj/
+*.user
+
+# ── Secrets — NEVER commit real .env files ───────────────────────────────────
+.env
+# .env.example files ARE committed (they have no real secrets)
+
+# ── Node ──────────────────────────────────────────────────────────────────────
+node_modules/
+ui/dist/
+ui/dist-ssr/
+*.local
+npm-debug.log*
+yarn-debug.log*
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/

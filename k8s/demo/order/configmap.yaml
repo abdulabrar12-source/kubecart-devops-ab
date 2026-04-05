@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: order-configmap
+  namespace: demo
+data:
+  DB_HOST: "host.minikube.internal,1433"
+  DB_NAME: "KubeCart_Orders"
+  # Fully-qualified in-cluster DNS: <service>.<namespace>.svc.cluster.local
+  # Unambiguous across namespaces; resolves identically to the short form within demo.
+  CATALOG_SERVICE_URL: "http://catalog-service.demo.svc.cluster.local"
