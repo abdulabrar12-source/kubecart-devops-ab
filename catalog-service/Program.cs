@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Prometheus;
 using CatalogService.Config;
 using CatalogService.Data;
 using CatalogService.Health;
@@ -18,6 +19,7 @@ builder.Services.AddSingleton(new DbOptions { ConnectionString = config.Connecti
 builder.Services.AddScoped<ICatalogRepository, CatalogRepository>();
 builder.Services.AddHealthChecks()
     .AddCheck<SqlConnectionHealthCheck>("sqlserver");
+builder.Services.AddHttpMetrics();
 builder.Services.AddCors(options =>
     options.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
 
@@ -43,6 +45,7 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UseCors();
+app.UseHttpMetrics();
 
 // ── Routes ─────────────────────────────────────────────────────────────────────
 app.MapGet("/", () => Results.Ok(new { message = "Catalog Service is running" }));
@@ -172,6 +175,7 @@ app.MapPost("/api/catalog/admin/products/{id:int}/images", async (
     return Results.Ok(product);
 });
 
+app.MapMetrics("/metrics");
 app.MapHealthChecks("/health", new HealthCheckOptions());
 
 app.Run();

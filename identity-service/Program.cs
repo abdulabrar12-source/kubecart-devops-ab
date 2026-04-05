@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.IdentityModel.Tokens;
+using Prometheus;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
@@ -24,6 +25,7 @@ builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddSingleton<PasswordHasher<string>>();
 builder.Services.AddHealthChecks()
     .AddCheck<SqlConnectionHealthCheck>("sqlserver");
+builder.Services.AddHttpMetrics();
 builder.Services.AddCors(options =>
     options.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
 
@@ -49,6 +51,7 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UseCors();
+app.UseHttpMetrics();
 
 // ── JWT helper ─────────────────────────────────────────────────────────────────
 string GenerateToken(User user)
@@ -180,6 +183,7 @@ app.MapGet("/api/auth/me", async (
     }
 });
 
+app.MapMetrics("/metrics");
 app.MapHealthChecks("/health", new HealthCheckOptions());
 
 app.Run();

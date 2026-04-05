@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Prometheus;
 using OrderService.Config;
 using OrderService.Data;
 using OrderService.Health;
@@ -31,6 +32,7 @@ builder.Services.AddScoped<ICartService, CartService>();
 builder.Services.AddScoped<ICheckoutService, CheckoutService>();
 builder.Services.AddHealthChecks()
     .AddCheck<SqlConnectionHealthCheck>("sqlserver");
+builder.Services.AddHttpMetrics();
 builder.Services.AddCors(options =>
     options.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
 
@@ -56,6 +58,7 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UseCors();
+app.UseHttpMetrics();
 
 // ── Routes ─────────────────────────────────────────────────────────────────────
 app.MapGet("/", () => Results.Ok(new { message = "Order Service is running" }));
@@ -108,6 +111,7 @@ app.MapPut("/api/orders/admin/{orderId:int}/status", async (
     return Results.Ok(order);
 });
 
+app.MapMetrics("/metrics");
 app.MapHealthChecks("/health", new HealthCheckOptions());
 
 // ── Cart routes ───────────────────────────────────────────────────────────────
