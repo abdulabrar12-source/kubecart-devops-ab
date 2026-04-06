@@ -28,17 +28,24 @@ spec:
           envFrom:
             - configMapRef:
                 name: catalog-configmap
+          # Secret values injected from catalog-secret (least-privilege: only catalog mounts this Secret)
           env:
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
-                  name: kubecart-secret
+                  name: catalog-secret
                   key: DB_USER
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: kubecart-secret
+                  name: catalog-secret
                   key: DB_PASSWORD
+            # Required for validating JWT on admin endpoints (POST/PUT/DELETE /api/catalog/admin/*)
+            - name: JWT_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: catalog-secret
+                  key: JWT_SIGNING_KEY
           startupProbe:
             httpGet:
               path: /health

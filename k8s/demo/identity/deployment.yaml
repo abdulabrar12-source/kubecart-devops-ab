@@ -29,27 +29,27 @@ spec:
           envFrom:
             - configMapRef:
                 name: identity-configmap
-          # Secret values injected individually from kubecart-secret
+          # Secret values injected from identity-secret (least-privilege: only identity mounts this Secret)
           env:
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
-                  name: kubecart-secret
+                  name: identity-secret
                   key: DB_USER
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: kubecart-secret
+                  name: identity-secret
                   key: DB_PASSWORD
             - name: JWT_SIGNING_KEY
               valueFrom:
                 secretKeyRef:
-                  name: kubecart-secret
+                  name: identity-secret
                   key: JWT_SIGNING_KEY
             - name: APP_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:
-                  name: kubecart-secret
+                  name: identity-secret
                   key: APP_ENCRYPTION_KEY
           # startupProbe gives the service up to 150 s to finish DB initialisation
           # before liveness/readiness probes begin.

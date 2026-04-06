@@ -189,6 +189,30 @@ kubectl get pods -n demo          # all pods Running
 kubectl get ingress -n demo       # kubecart-ingress has ADDRESS
 ```
 
+### 6. Secrets — Per-Service (Least Privilege)
+
+Three separate Secrets are defined in `k8s/demo/secret.yaml`. Each service only mounts its own Secret:
+
+| Secret | Mounted by | Keys |
+|---|---|---|
+| `identity-secret` | identity-service | `DB_USER` `DB_PASSWORD` `JWT_SIGNING_KEY` `APP_ENCRYPTION_KEY` |
+| `catalog-secret` | catalog-service | `DB_USER` `DB_PASSWORD` `JWT_SIGNING_KEY` |
+| `order-secret` | order-service | `DB_USER` `DB_PASSWORD` `JWT_SIGNING_KEY` |
+
+> `JWT_SIGNING_KEY` must be **identical** across all three secrets — catalog and order use it to validate tokens issued by identity. `APP_ENCRYPTION_KEY` is exclusive to identity-service (PII encryption at rest).
+
+```bash
+# Verify a secret was created and has the expected keys
+kubectl get secret identity-secret -n demo -o jsonpath='{.data}' | python3 -m json.tool
+
+# Confirm a key decodes to a non-empty value
+kubectl get secret catalog-secret -n demo \
+  -o jsonpath='{.data.JWT_SIGNING_KEY}' | base64 -d
+
+# Check which secrets a running pod actually sees
+kubectl exec -n demo deployment/order-service -- printenv | grep -E 'DB_|JWT_'
+```
+
 ---
 
 ## Monitoring (Prometheus + Grafana)
@@ -269,11 +293,12 @@ kubectl logs -n demo deployment/identity-service
 # 1. Confirm the pod is crash-looping and read the exact error
 kubectl logs -n demo deployment/identity-service --previous
 
-# 2. Check what keys are actually present in the Secret
-kubectl get secret kubecart-secrets -n demo -o jsonpath='{.data}' | python3 -m json.tool
+# 2. Check what keys are actually present in that service's Secret
+#    Each service has its own Secret: identity-secret / catalog-secret / order-secret
+kubectl get secret identity-secret -n demo -o jsonpath='{.data}' | python3 -m json.tool
 
 # 3. Decode a specific key to verify the value is non-empty
-kubectl get secret kubecart-secrets -n demo \
+kubectl get secret identity-secret -n demo \
   -o jsonpath='{.data.JWT_SIGNING_KEY}' | base64 -d
 ```
 

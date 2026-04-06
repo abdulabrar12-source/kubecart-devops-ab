@@ -28,17 +28,24 @@ spec:
           envFrom:
             - configMapRef:
                 name: order-configmap
+          # Secret values injected from order-secret (least-privilege: only order mounts this Secret)
           env:
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
-                  name: kubecart-secret
+                  name: order-secret
                   key: DB_USER
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: kubecart-secret
+                  name: order-secret
                   key: DB_PASSWORD
+            # Required for validating JWT on all authenticated order/cart endpoints
+            - name: JWT_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: order-secret
+                  key: JWT_SIGNING_KEY
           startupProbe:
             httpGet:
               path: /health
