@@ -25,7 +25,6 @@ builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddSingleton<PasswordHasher<string>>();
 builder.Services.AddHealthChecks()
     .AddCheck<SqlConnectionHealthCheck>("sqlserver");
-builder.Services.AddHttpMetrics();
 builder.Services.AddCors(options =>
     options.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
 

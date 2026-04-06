@@ -19,7 +19,6 @@ builder.Services.AddSingleton(new DbOptions { ConnectionString = config.Connecti
 builder.Services.AddScoped<ICatalogRepository, CatalogRepository>();
 builder.Services.AddHealthChecks()
     .AddCheck<SqlConnectionHealthCheck>("sqlserver");
-builder.Services.AddHttpMetrics();
 builder.Services.AddCors(options =>
     options.AddDefaultPolicy(p => p.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
 
