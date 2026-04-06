@@ -264,127 +264,180 @@ All services load config exclusively from environment variables. See each servic
 
 ## Debug Drills
 
-Real failures encountered during development and deployment, with step-by-step diagnosis and fix.
+Two intentionally broken states introduced, diagnosed, and fixed during deployment.
 
 ---
 
-### Drill 1 — Pod CrashLoopBackOff: Missing Secret Key (DevOps)
+### Drill 1 — localhost DB Bug (Developer → DevOps)
+
+#### The Broken State
+
+A developer copied their local `.env` file directly into `k8s/demo/identity/configmap.yaml`, leaving:
+
+```yaml
+# k8s/demo/identity/configmap.yaml  ← BROKEN
+data:
+  DB_HOST: "localhost,1433"   # ← works on laptop, fatal inside a pod
+  DB_NAME: "KubeCart_Identity"
+```
+
+#### Symptom
+
+```bash
+kubectl get pods -n demo
+# identity-service-xxx   0/1   CrashLoopBackOff   4   3m
+
+kubectl logs -n demo deployment/identity-service --previous
+# Unhandled exception. Microsoft.Data.SqlClient.SqlException:
+#   A network-related or instance-specific error occurred while
+#   establishing a connection to SQL Server.
+#   (provider: TCP Provider, error: 40 - Could not open connection)
+#   Server: localhost,1433
+```
+
+#### Why It Breaks
+
+Inside a Kubernetes pod `localhost` resolves to the **pod's own loopback interface** — not the host machine. SQL Server is running on the host (Mac), not inside the pod. The correct address for reaching the host from a Minikube pod is `host.minikube.internal,1433`.
+
+#### Diagnosis
+
+```bash
+# 1. Read what DB_HOST the running pod actually sees
+kubectl exec -n demo deployment/identity-service -- printenv DB_HOST
+# Output: localhost,1433   ← the bug
+
+# 2. Confirm SQL Server is unreachable at that address from inside the pod
+kubectl exec -n demo deployment/identity-service \
+  -- sh -c "nc -zv localhost 1433 2>&1 || echo 'UNREACHABLE'"
+
+# 3. Verify the correct host is reachable
+kubectl exec -n demo deployment/identity-service \
+  -- sh -c "nc -zv host.minikube.internal 1433 2>&1 || echo 'UNREACHABLE'"
+```
+
+#### Fix
+
+```bash
+# 1. Patch the configmap with the correct host
+kubectl patch configmap identity-configmap -n demo \
+  --type merge -p '{"data":{"DB_HOST":"host.minikube.internal,1433"}}'
+
+# Apply the same fix to catalog and order configmaps
+kubectl patch configmap catalog-configmap -n demo \
+  --type merge -p '{"data":{"DB_HOST":"host.minikube.internal,1433"}}'
+kubectl patch configmap order-configmap -n demo \
+  --type merge -p '{"data":{"DB_HOST":"host.minikube.internal,1433"}}'
+
+# 2. Rolling restart to pick up the new value
+kubectl rollout restart deployment/identity-service \
+  deployment/catalog-service deployment/order-service -n demo
+
+# 3. Confirm pods are Running and healthy
+kubectl get pods -n demo
+kubectl logs -n demo deployment/identity-service | tail -5
+# Should see: "Application started. Press Ctrl+C to shut down."
+```
+
+#### What the configmap looks like after the fix
+
+```yaml
+# k8s/demo/identity/configmap.yaml  ← FIXED
+data:
+  DB_HOST: "host.minikube.internal,1433"
+  DB_NAME: "KubeCart_Identity"
+```
+
+#### Prevention
+
+- Never copy a local `.env` file into a K8s ConfigMap without reviewing every value.
+- `localhost` inside a pod always means the pod itself. Use `host.minikube.internal` for the Docker host (Minikube), or the service's ClusterIP DNS name for another in-cluster service.
+- Add `kubectl exec -- printenv` as a post-deploy smoke test in your runbook.
+
+---
+
+### Drill 2 — Wrong Password Secret Bug (DevOps)
+
+#### The Broken State
+
+The `DB_PASSWORD` in `k8s/demo/secret.yaml` was base64-encoded with a trailing newline (a common `echo` mistake), producing a password value with a `\n` character that SQL Server rejects:
+
+```bash
+# WRONG — echo adds \n before base64 encoding
+echo 'YourStrong@Pass123' | base64
+# WW91clN0cm9uZ0BQYXNzMTIzCg==   ← note the trailing 'Cg==' (the \n)
+
+# CORRECT — echo -n suppresses the newline
+echo -n 'YourStrong@Pass123' | base64
+# WW91clN0cm9uZ0BQYXNzMTIz
+```
+
+The secret was stored with `WW91clN0cm9uZ0BQYXNzMTIzCg==` instead of `WW91clN0cm9uZ0BQYXNzMTIz`.
 
 #### Symptom
 
 ```bash
 kubectl get pods -n demo
 # identity-service-xxx   0/1   CrashLoopBackOff   3   2m
-```
 
-```bash
-kubectl logs -n demo deployment/identity-service
-# Unhandled exception. System.Exception:
-#   Required environment variable 'JWT_SIGNING_KEY' is not set.
-```
-
-#### Root Cause
-
-`AppConfig.cs` performs a fail-fast check at startup — if any required environment variable is absent or empty it throws immediately. The most common trigger is a **key name mismatch** between `secret.yaml` and the env var name the service expects, e.g. the Secret had `JWT_KEY` but the service reads `JWT_SIGNING_KEY`.
-
-#### Diagnosis
-
-```bash
-# 1. Confirm the pod is crash-looping and read the exact error
 kubectl logs -n demo deployment/identity-service --previous
-
-# 2. Check what keys are actually present in that service's Secret
-#    Each service has its own Secret: identity-secret / catalog-secret / order-secret
-kubectl get secret identity-secret -n demo -o jsonpath='{.data}' | python3 -m json.tool
-
-# 3. Decode a specific key to verify the value is non-empty
-kubectl get secret identity-secret -n demo \
-  -o jsonpath='{.data.JWT_SIGNING_KEY}' | base64 -d
+# Unhandled exception. Microsoft.Data.SqlClient.SqlException:
+#   Login failed for user 'sa'.
+#   (Microsoft SQL Server, Error: 18456)
 ```
 
-#### Fix
-
-```bash
-# 1. Edit the Secret to use the correct key name / value
-kubectl edit secret kubecart-secrets -n demo
-# OR re-apply your corrected secret.yaml
-kubectl apply -f k8s/demo/secret.yaml
-
-# 2. Force a rolling restart so the pod re-reads the Secret
-kubectl rollout restart deployment/identity-service -n demo
-
-# 3. Confirm the pod comes up healthy
-kubectl rollout status deployment/identity-service -n demo
-kubectl get pods -n demo
-```
-
-#### Prevention
-
-- Keep `.env.example` in sync with `AppConfig.cs` — both are the source of truth for required variable names.
-- Run `kubectl describe pod <name> -n demo` before debugging logs; the `Environment` block shows which variables were actually injected.
-
----
-
-### Drill 2 — Checkout Returns 503: Wrong Catalog Service URL (Developer + DevOps)
-
-#### Symptom
-
-`POST /api/orders/checkout` returns **503 Service Unavailable**.
-
-```bash
-kubectl logs -n demo deployment/order-service
-# CatalogServiceException: Failed to reach catalog-service.
-# System.Net.Http.HttpRequestException: Connection refused
-#   (http://catalog-service/api/catalog/products/<id>)
-```
-
-The cart loads fine but every checkout attempt fails.
-
-#### Root Cause
-
-`order-service` calls `catalog-service` over HTTP at checkout time to validate product prices (see `Services/CatalogClient.cs`). The base URL is read from `CATALOG_SERVICE_URL`. Inside Kubernetes the correct value is the **cluster-internal DNS name** including namespace:
-
-```
-http://catalog-service.demo.svc.cluster.local
-```
-
-A common mistake is setting it to `http://catalog-service` (missing namespace suffix) or using a localhost address left over from local development.
+The pod starts, reaches SQL Server successfully (no TCP error), but authentication fails.
 
 #### Diagnosis
 
 ```bash
-# 1. Read the current value injected into the order-service pod
-kubectl exec -n demo deployment/order-service \
-  -- printenv CATALOG_SERVICE_URL
+# 1. Decode the stored password and pipe through cat -A to reveal hidden characters
+kubectl get secret identity-secret -n demo \
+  -o jsonpath='{.data.DB_PASSWORD}' | base64 -d | cat -A
+# Output: YourStrong@Pass123^M$   ← ^M or $ means trailing whitespace/newline
 
-# 2. Test connectivity from inside the pod
-kubectl exec -n demo deployment/order-service \
-  -- wget -qO- http://catalog-service.demo.svc.cluster.local/health
+# 2. Check the length — correct password is 18 chars, broken one is 19
+kubectl get secret identity-secret -n demo \
+  -o jsonpath='{.data.DB_PASSWORD}' | base64 -d | wc -c
+# 19   ← should be 18
 
-# 3. Verify the catalog-service ClusterIP and port
-kubectl get svc catalog-service -n demo
+# 3. Confirm SQL Server itself accepts the correct password from the host
+sqlcmd -S localhost,1433 -U sa -P 'YourStrong@Pass123' -Q "SELECT 1"
+# If this succeeds, the problem is purely in the Secret value
 ```
 
 #### Fix
 
 ```bash
-# 1. Update the order-service ConfigMap with the correct URL
-kubectl edit configmap order-service-config -n demo
-# Set: CATALOG_SERVICE_URL=http://catalog-service.demo.svc.cluster.local
+# 1. Re-encode the password correctly (no trailing newline)
+CORRECT_B64=$(echo -n 'YourStrong@Pass123' | base64)
+echo $CORRECT_B64
+# WW91clN0cm9uZ0BQYXNzMTIz
 
-# 2. Rolling restart to pick up the new env var
-kubectl rollout restart deployment/order-service -n demo
+# 2. Patch all three per-service secrets
+for secret in identity-secret catalog-secret order-secret; do
+  kubectl patch secret $secret -n demo \
+    --type merge -p "{\"data\":{\"DB_PASSWORD\":\"${CORRECT_B64}\"}}"
+done
 
-# 3. Smoke-test checkout
-curl -s -X POST http://localhost:8080/api/orders/checkout \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"shippingAddress":"123 Main St"}'
-# Expect: 201 Created
+# 3. Rolling restart
+kubectl rollout restart deployment/identity-service \
+  deployment/catalog-service deployment/order-service -n demo
+
+# 4. Verify login now succeeds
+kubectl logs -n demo deployment/identity-service | grep -i "started\|error"
+# Expect: "Application started. Press Ctrl+C to shut down."
+```
+
+#### What the secret value looks like after the fix
+
+```yaml
+# k8s/demo/secret.yaml  ← FIXED
+data:
+  DB_PASSWORD: WW91clN0cm9uZ0BQYXNzMTIz   # echo -n 'YourStrong@Pass123' | base64
 ```
 
 #### Prevention
 
-- In `k8s/demo/order/configmap.yaml` always use the full DNS form: `http://<service-name>.<namespace>.svc.cluster.local`.
-- For local development set `CATALOG_SERVICE_URL=http://localhost:5002` in `order-service/.env`.
-- Add a `/health` readiness probe that performs a HEAD request to `CATALOG_SERVICE_URL/health` so a misconfigured URL is caught at pod startup rather than at first checkout.
+- **Always use `echo -n`** (no newline) when base64-encoding secret values.
+- After applying a Secret, decode and length-check every sensitive value: `kubectl get secret <name> -n demo -o jsonpath='{.data.<KEY>}' | base64 -d | wc -c`
+- Add a comment next to every base64 value in `secret.yaml` showing the exact `echo -n '...' | base64` command used to generate it — this repo already follows that convention.
