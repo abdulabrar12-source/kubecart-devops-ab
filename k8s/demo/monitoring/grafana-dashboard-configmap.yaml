@@ -14,7 +14,7 @@ data:
       "tags": ["kubecart"],
       "timezone": "browser",
       "schemaVersion": 38,
-      "version": 1,
+      "version": 2,
       "refresh": "10s",
       "time": { "from": "now-1h", "to": "now" },
       "templating": {
@@ -32,16 +32,30 @@ data:
         ]
       },
       "panels": [
+
         {
           "id": 1,
           "title": "Request Rate (req/s)",
+          "description": "Incoming HTTP requests per second, broken out by service plus an aggregate total.",
           "type": "timeseries",
           "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
           "datasource": "Prometheus",
           "targets": [
             {
-              "expr": "sum(rate(http_requests_received_total{service=~\"$service\"}[1m])) by (service)",
-              "legendFormat": "{{service}}"
+              "expr": "sum(rate(http_requests_received_total{service=~\"identity.*\"}[1m]))",
+              "legendFormat": "identity-service"
+            },
+            {
+              "expr": "sum(rate(http_requests_received_total{service=~\"catalog.*\"}[1m]))",
+              "legendFormat": "catalog-service"
+            },
+            {
+              "expr": "sum(rate(http_requests_received_total{service=~\"order.*\"}[1m]))",
+              "legendFormat": "order-service"
+            },
+            {
+              "expr": "sum(rate(http_requests_received_total[1m]))",
+              "legendFormat": "total"
             }
           ],
           "fieldConfig": {
@@ -51,122 +65,243 @@ data:
             }
           }
         },
+
         {
           "id": 2,
-          "title": "Error Rate (5xx req/s)",
+          "title": "Error Rate 5xx (req/s)",
+          "description": "HTTP 5xx error rate per second per service, plus combined total.",
           "type": "timeseries",
           "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
           "datasource": "Prometheus",
           "targets": [
             {
-              "expr": "sum(rate(http_requests_received_total{service=~\"$service\", code=~\"5..\"}[1m])) by (service)",
-              "legendFormat": "{{service}} errors"
+              "expr": "sum(rate(http_requests_received_total{service=~\"identity.*\", code=~\"5..\"}[1m]))",
+              "legendFormat": "identity-service"
+            },
+            {
+              "expr": "sum(rate(http_requests_received_total{service=~\"catalog.*\", code=~\"5..\"}[1m]))",
+              "legendFormat": "catalog-service"
+            },
+            {
+              "expr": "sum(rate(http_requests_received_total{service=~\"order.*\", code=~\"5..\"}[1m]))",
+              "legendFormat": "order-service"
+            },
+            {
+              "expr": "sum(rate(http_requests_received_total{code=~\"5..\"}[1m]))",
+              "legendFormat": "total"
             }
           ],
           "fieldConfig": {
             "defaults": {
               "unit": "reqps",
               "color": { "mode": "fixed", "fixedColor": "red" },
-              "custom": { "thresholdsStyle": { "mode": "area" } },
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
                   { "color": "green", "value": null },
                   { "color": "red",   "value": 0.01 }
                 ]
-              }
+              },
+              "custom": { "thresholdsStyle": { "mode": "area" } }
             }
           }
         },
+
         {
           "id": 3,
-          "title": "Request Duration — p50 / p95 / p99",
+          "title": "p50 Latency (median)",
+          "description": "50th-percentile request duration per service and overall.",
           "type": "timeseries",
           "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
           "datasource": "Prometheus",
           "targets": [
             {
-              "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{service=~\"$service\"}[1m])) by (le, service))",
-              "legendFormat": "p50 {{service}}"
+              "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{service=~\"identity.*\"}[1m])) by (le))",
+              "legendFormat": "identity-service"
             },
             {
-              "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service=~\"$service\"}[1m])) by (le, service))",
-              "legendFormat": "p95 {{service}}"
+              "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{service=~\"catalog.*\"}[1m])) by (le))",
+              "legendFormat": "catalog-service"
             },
             {
-              "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{service=~\"$service\"}[1m])) by (le, service))",
-              "legendFormat": "p99 {{service}}"
+              "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{service=~\"order.*\"}[1m])) by (le))",
+              "legendFormat": "order-service"
+            },
+            {
+              "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[1m])) by (le))",
+              "legendFormat": "overall"
             }
           ],
-          "fieldConfig": { "defaults": { "unit": "s" } }
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "color": { "mode": "palette-classic" }
+            }
+          }
         },
+
         {
           "id": 4,
-          "title": "In-Flight Requests",
+          "title": "p99 Latency (tail)",
+          "description": "99th-percentile request duration per service and overall.",
           "type": "timeseries",
           "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
           "datasource": "Prometheus",
           "targets": [
             {
-              "expr": "sum(http_requests_in_progress{service=~\"$service\"}) by (service)",
-              "legendFormat": "{{service}}"
+              "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{service=~\"identity.*\"}[1m])) by (le))",
+              "legendFormat": "identity-service"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{service=~\"catalog.*\"}[1m])) by (le))",
+              "legendFormat": "catalog-service"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{service=~\"order.*\"}[1m])) by (le))",
+              "legendFormat": "order-service"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[1m])) by (le))",
+              "legendFormat": "overall"
             }
           ],
-          "fieldConfig": { "defaults": { "unit": "short" } }
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "color": { "mode": "palette-classic" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green",  "value": null },
+                  { "color": "yellow", "value": 0.5 },
+                  { "color": "red",    "value": 1.0 }
+                ]
+              }
+            }
+          }
         },
+
         {
           "id": 5,
-          "title": "Total Requests (last 1 h)",
-          "type": "stat",
-          "gridPos": { "x": 0, "y": 16, "w": 6, "h": 4 },
+          "title": "In-Flight Requests",
+          "description": "Number of requests currently being processed per service and total.",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
           "datasource": "Prometheus",
           "targets": [
             {
-              "expr": "sum(increase(http_requests_received_total{service=~\"$service\"}[1h]))",
-              "legendFormat": "Total"
-            }
-          ],
-          "fieldConfig": { "defaults": { "unit": "short" } }
-        },
-        {
-          "id": 6,
-          "title": "Total Errors (last 1 h)",
-          "type": "stat",
-          "gridPos": { "x": 6, "y": 16, "w": 6, "h": 4 },
-          "datasource": "Prometheus",
-          "targets": [
+              "expr": "sum(http_requests_in_progress{service=~\"identity.*\"})",
+              "legendFormat": "identity-service"
+            },
             {
-              "expr": "sum(increase(http_requests_received_total{service=~\"$service\", code=~\"5..\"}[1h]))",
-              "legendFormat": "Errors"
+              "expr": "sum(http_requests_in_progress{service=~\"catalog.*\"})",
+              "legendFormat": "catalog-service"
+            },
+            {
+              "expr": "sum(http_requests_in_progress{service=~\"order.*\"})",
+              "legendFormat": "order-service"
+            },
+            {
+              "expr": "sum(http_requests_in_progress)",
+              "legendFormat": "total"
             }
           ],
           "fieldConfig": {
             "defaults": {
               "unit": "short",
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  { "color": "green", "value": null },
-                  { "color": "red",   "value": 1 }
-                ]
-              },
-              "color": { "mode": "thresholds" }
+              "color": { "mode": "palette-classic" },
+              "min": 0
             }
           }
         },
+
         {
-          "id": 7,
-          "title": "Pod CPU Usage",
+          "id": 6,
+          "title": "HTTP Status Breakdown",
+          "description": "Request rate split by HTTP status class (2xx/3xx/4xx/5xx) across all services.",
           "type": "timeseries",
-          "gridPos": { "x": 12, "y": 16, "w": 12, "h": 4 },
+          "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
           "datasource": "Prometheus",
           "targets": [
             {
-              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"demo\", container!=\"\"}[1m])) by (pod)",
-              "legendFormat": "{{pod}}"
+              "expr": "sum(rate(http_requests_received_total{code=~\"2..\"}[1m]))",
+              "legendFormat": "2xx success"
+            },
+            {
+              "expr": "sum(rate(http_requests_received_total{code=~\"3..\"}[1m]))",
+              "legendFormat": "3xx redirect"
+            },
+            {
+              "expr": "sum(rate(http_requests_received_total{code=~\"4..\"}[1m]))",
+              "legendFormat": "4xx client error"
+            },
+            {
+              "expr": "sum(rate(http_requests_received_total{code=~\"5..\"}[1m]))",
+              "legendFormat": "5xx server error"
             }
           ],
-          "fieldConfig": { "defaults": { "unit": "short" } }
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": { "mode": "palette-classic" }
+            },
+            "overrides": [
+              {
+                "matcher": { "id": "byName", "options": "5xx server error" },
+                "properties": [
+                  { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "4xx client error" },
+                "properties": [
+                  { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "2xx success" },
+                "properties": [
+                  { "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }
+                ]
+              }
+            ]
+          }
+        },
+
+        {
+          "id": 7,
+          "title": "Pod CPU Usage (cores)",
+          "description": "CPU core consumption per pod group in the demo namespace, plus total.",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 24, "w": 24, "h": 8 },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"demo\", pod=~\"identity.*\", container!=\"\", container!=\"POD\"}[1m]))",
+              "legendFormat": "identity-service"
+            },
+            {
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"demo\", pod=~\"catalog.*\", container!=\"\", container!=\"POD\"}[1m]))",
+              "legendFormat": "catalog-service (×2 replicas)"
+            },
+            {
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"demo\", pod=~\"order.*\", container!=\"\", container!=\"POD\"}[1m]))",
+              "legendFormat": "order-service"
+            },
+            {
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"demo\", container!=\"\", container!=\"POD\"}[1m]))",
+              "legendFormat": "total (demo ns)"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": { "mode": "palette-classic" },
+              "min": 0,
+              "custom": { "fillOpacity": 10 }
+            }
+          }
         }
+
       ]
     }
