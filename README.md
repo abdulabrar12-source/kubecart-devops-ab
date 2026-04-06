@@ -235,3 +235,131 @@ All services load config exclusively from environment variables. See each servic
 | Orchestration | Kubernetes — Deployments, Services, ConfigMaps, Secrets, Ingress |
 | Cluster | Minikube (docker driver) |
 | Monitoring | prometheus-net.AspNetCore + kube-prometheus-stack (Helm) |
+
+---
+
+## Debug Drills
+
+Real failures encountered during development and deployment, with step-by-step diagnosis and fix.
+
+---
+
+### Drill 1 — Pod CrashLoopBackOff: Missing Secret Key (DevOps)
+
+#### Symptom
+
+```bash
+kubectl get pods -n demo
+# identity-service-xxx   0/1   CrashLoopBackOff   3   2m
+```
+
+```bash
+kubectl logs -n demo deployment/identity-service
+# Unhandled exception. System.Exception:
+#   Required environment variable 'JWT_SIGNING_KEY' is not set.
+```
+
+#### Root Cause
+
+`AppConfig.cs` performs a fail-fast check at startup — if any required environment variable is absent or empty it throws immediately. The most common trigger is a **key name mismatch** between `secret.yaml` and the env var name the service expects, e.g. the Secret had `JWT_KEY` but the service reads `JWT_SIGNING_KEY`.
+
+#### Diagnosis
+
+```bash
+# 1. Confirm the pod is crash-looping and read the exact error
+kubectl logs -n demo deployment/identity-service --previous
+
+# 2. Check what keys are actually present in the Secret
+kubectl get secret kubecart-secrets -n demo -o jsonpath='{.data}' | python3 -m json.tool
+
+# 3. Decode a specific key to verify the value is non-empty
+kubectl get secret kubecart-secrets -n demo \
+  -o jsonpath='{.data.JWT_SIGNING_KEY}' | base64 -d
+```
+
+#### Fix
+
+```bash
+# 1. Edit the Secret to use the correct key name / value
+kubectl edit secret kubecart-secrets -n demo
+# OR re-apply your corrected secret.yaml
+kubectl apply -f k8s/demo/secret.yaml
+
+# 2. Force a rolling restart so the pod re-reads the Secret
+kubectl rollout restart deployment/identity-service -n demo
+
+# 3. Confirm the pod comes up healthy
+kubectl rollout status deployment/identity-service -n demo
+kubectl get pods -n demo
+```
+
+#### Prevention
+
+- Keep `.env.example` in sync with `AppConfig.cs` — both are the source of truth for required variable names.
+- Run `kubectl describe pod <name> -n demo` before debugging logs; the `Environment` block shows which variables were actually injected.
+
+---
+
+### Drill 2 — Checkout Returns 503: Wrong Catalog Service URL (Developer + DevOps)
+
+#### Symptom
+
+`POST /api/orders/checkout` returns **503 Service Unavailable**.
+
+```bash
+kubectl logs -n demo deployment/order-service
+# CatalogServiceException: Failed to reach catalog-service.
+# System.Net.Http.HttpRequestException: Connection refused
+#   (http://catalog-service/api/catalog/products/<id>)
+```
+
+The cart loads fine but every checkout attempt fails.
+
+#### Root Cause
+
+`order-service` calls `catalog-service` over HTTP at checkout time to validate product prices (see `Services/CatalogClient.cs`). The base URL is read from `CATALOG_SERVICE_URL`. Inside Kubernetes the correct value is the **cluster-internal DNS name** including namespace:
+
+```
+http://catalog-service.demo.svc.cluster.local
+```
+
+A common mistake is setting it to `http://catalog-service` (missing namespace suffix) or using a localhost address left over from local development.
+
+#### Diagnosis
+
+```bash
+# 1. Read the current value injected into the order-service pod
+kubectl exec -n demo deployment/order-service \
+  -- printenv CATALOG_SERVICE_URL
+
+# 2. Test connectivity from inside the pod
+kubectl exec -n demo deployment/order-service \
+  -- wget -qO- http://catalog-service.demo.svc.cluster.local/health
+
+# 3. Verify the catalog-service ClusterIP and port
+kubectl get svc catalog-service -n demo
+```
+
+#### Fix
+
+```bash
+# 1. Update the order-service ConfigMap with the correct URL
+kubectl edit configmap order-service-config -n demo
+# Set: CATALOG_SERVICE_URL=http://catalog-service.demo.svc.cluster.local
+
+# 2. Rolling restart to pick up the new env var
+kubectl rollout restart deployment/order-service -n demo
+
+# 3. Smoke-test checkout
+curl -s -X POST http://localhost:8080/api/orders/checkout \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"shippingAddress":"123 Main St"}'
+# Expect: 201 Created
+```
+
+#### Prevention
+
+- In `k8s/demo/order/configmap.yaml` always use the full DNS form: `http://<service-name>.<namespace>.svc.cluster.local`.
+- For local development set `CATALOG_SERVICE_URL=http://localhost:5002` in `order-service/.env`.
+- Add a `/health` readiness probe that performs a HEAD request to `CATALOG_SERVICE_URL/health` so a misconfigured URL is caught at pod startup rather than at first checkout.
