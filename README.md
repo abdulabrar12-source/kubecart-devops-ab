@@ -1,6 +1,15 @@
-# KubeCart — Microservice E-Commerce Platform
+# KubeCart
 
-A production-style e-commerce platform built with 3 .NET 10 microservices, a React 19 frontend, and deployed on Kubernetes (Minikube).
+A production-style microservice e-commerce platform built with .NET 10, React 19, and Kubernetes.
+
+---
+
+## Quick Links
+
+| Document | Description |
+|---|---|
+| [DESIGN.md](DESIGN.md) | Architecture, API reference, data model, tech decisions |
+| [USER_MANUAL.md](USER_MANUAL.md) | End-user guide — shopping, orders, admin panel |
 
 ---
 
@@ -9,14 +18,14 @@ A production-style e-commerce platform built with 3 .NET 10 microservices, a Rea
 ```
 Browser
   └── Ingress (nginx)
-        ├── /api/auth     → identity-service  (port 80)
-        ├── /api/catalog  → catalog-service   (port 80, 2 replicas)
-        ├── /api/orders   → order-service     (port 80)
-        └── /             → frontend          (React + Vite, port 80)
+        ├── /api/auth     → identity-service   (.NET 10, port 80)
+        ├── /api/catalog  → catalog-service    (.NET 10, port 80, 2 replicas)
+        ├── /api/orders   → order-service      (.NET 10, port 80)
+        └── /             → frontend           (React 19 + Vite, port 80)
 
-order-service ──HTTP──► catalog-service   (product lookup at checkout)
+order-service ──HTTP──► catalog-service   (product validation at checkout)
 
-Each service ──► SQL Server (host.minikube.internal:1433)
+Each service ──► SQL Server
                   ├── KubeCart_Identity
                   ├── KubeCart_Catalog
                   └── KubeCart_Orders
@@ -24,81 +33,133 @@ Each service ──► SQL Server (host.minikube.internal:1433)
 
 ---
 
-## Services
+## Repo Structure
 
-| Service | Port | Database | Description |
-|---|---|---|---|
-| `identity-service` | 5001 | KubeCart_Identity | JWT auth — register / login |
-| `catalog-service` | 5002 | KubeCart_Catalog | Products & categories (2 replicas in K8s) |
-| `order-service` | 5003 | KubeCart_Orders | Cart, checkout, order history |
-| `ui` | 5173 (dev) | — | React 19 + Vite 8 SPA |
+```
+kubecart-devops-ab/
+│
+├── identity-service/          # JWT auth — register, login, token validation
+│   ├── Config/AppConfig.cs    # Env var loader (fail-fast)
+│   ├── Data/                  # IUserRepository + Dapper SQL impl
+│   ├── Health/                # SQL health check
+│   ├── Models/                # Request/response DTOs
+│   ├── Program.cs             # Minimal API entrypoint
+│   ├── Dockerfile
+│   └── .env.example
+│
+├── catalog-service/           # Product catalogue — categories, products, images
+│   ├── Config/AppConfig.cs
+│   ├── Data/                  # ICatalogRepository + Dapper SQL impl
+│   ├── Health/
+│   ├── Models/
+│   ├── Program.cs
+│   ├── Dockerfile
+│   └── .env.example
+│
+├── order-service/             # Cart, checkout, order history
+│   ├── Config/AppConfig.cs
+│   ├── Data/                  # IOrderRepository + Dapper SQL impl
+│   ├── Health/
+│   ├── Models/
+│   ├── Services/              # CartService, CheckoutService, CatalogClient (HTTP)
+│   ├── Program.cs
+│   ├── Dockerfile
+│   └── .env.example
+│
+├── ui/                        # React 19 + Vite 8 SPA
+│   ├── src/
+│   │   ├── api/               # authApi.js, catalogApi.js, ordersApi.js
+│   │   ├── components/        # Navbar, CartDrawer, ProductCard, ProtectedRoute
+│   │   ├── contexts/          # AuthContext (JWT state)
+│   │   └── pages/             # Home, Login, Register, Cart, Checkout, Orders
+│   │       └── admin/         # AdminProducts, AdminOrders
+│   ├── nginx.conf             # Reverse-proxy template (envsubst at runtime)
+│   └── Dockerfile
+│
+├── k8s/demo/                  # Kubernetes manifests (namespace: demo)
+│   ├── namespace.yaml
+│   ├── secret.yaml            # DB creds + JWT keys (base64)
+│   ├── ingress.yaml           # nginx Ingress routing
+│   ├── identity/              # deployment, service, configmap
+│   ├── catalog/               # deployment (2 replicas), service, configmap
+│   ├── order/                 # deployment, service, configmap
+│   ├── frontend/              # deployment, service, configmap
+│   └── monitoring/            # prometheus-values.yaml + grafana dashboard
+│
+├── start-local.sh             # One-shot local dev startup
+├── deploy-monitoring.sh       # Helm install for Prometheus + Grafana
+├── DESIGN.md                  # Architecture + API reference
+└── USER_MANUAL.md             # End-user guide
+```
 
 ---
 
-## Tech Stack
-
-- **Backend:** .NET 10 Minimal API, Dapper, SQL Server
-- **Frontend:** React 19, Vite 8, React Router v7
-- **Auth:** JWT (HS256, 7-day expiry)
-- **Containers:** Docker (multi-stage builds)
-- **Orchestration:** Kubernetes — Deployments, Services, ConfigMaps, Secrets, Ingress
-- **Cluster:** Minikube (docker driver)
-- **Monitoring:** Prometheus (`prometheus-net.AspNetCore`) + Grafana (`kube-prometheus-stack`)
-
----
-
-## Local Development
+## For Developers — Local Setup
 
 ### Prerequisites
-- Docker Desktop, .NET 10 SDK, Node.js 20+
+- Docker Desktop
+- .NET 10 SDK
+- Node.js 20+
 
-### Start all services
+### 1. Start SQL Server
 
 ```bash
-# 1. Start SQL Server
 docker run -e ACCEPT_EULA=Y -e SA_PASSWORD=YourStrong@Pass123 \
   -p 1433:1433 --name kubecart-sqlserver -d \
   mcr.microsoft.com/mssql/server:2022-latest
+```
 
-# 2. Copy env files
+### 2. Configure env files
+
+```bash
 cp identity-service/.env.example identity-service/.env
 cp catalog-service/.env.example  catalog-service/.env
 cp order-service/.env.example    order-service/.env
+```
 
-# 3. Start everything
+### 3. Start all services
+
+```bash
 bash start-local.sh
 ```
 
-| Service | URL |
-|---|---|
-| Identity | http://localhost:5001 |
-| Catalog | http://localhost:5002 |
-| Order | http://localhost:5003 |
-| UI | http://localhost:5173 |
+| Service | URL | Health |
+|---|---|---|
+| Identity | http://localhost:5001 | http://localhost:5001/health |
+| Catalog | http://localhost:5002 | http://localhost:5002/health |
+| Order | http://localhost:5003 | http://localhost:5003/health |
+| UI | http://localhost:5173 | — |
 
 ---
 
-## Kubernetes Deployment (Minikube)
+## For DevOps — Kubernetes Deployment
 
 ### Prerequisites
-- Minikube, Helm (`brew install helm`), kubectl
+- Minikube (`minikube start`)
+- Helm (`brew install helm`)
+- kubectl
+
+### 1. Build images
 
 ```bash
-# 1. Start Minikube
-minikube start
-
-# 2. Build & load images
 docker build -t identity-service:latest ./identity-service
 docker build -t catalog-service:latest  ./catalog-service
 docker build -t order-service:latest    ./order-service
 docker build -t frontend:latest         ./ui
+```
 
+### 2. Load into Minikube
+
+```bash
 minikube image load identity-service:latest
 minikube image load catalog-service:latest
 minikube image load order-service:latest
 minikube image load frontend:latest
+```
 
-# 3. Deploy
+### 3. Deploy
+
+```bash
 kubectl apply -f k8s/demo/namespace.yaml
 kubectl apply -f k8s/demo/secret.yaml
 kubectl apply -f k8s/demo/identity/
@@ -106,13 +167,27 @@ kubectl apply -f k8s/demo/catalog/
 kubectl apply -f k8s/demo/order/
 kubectl apply -f k8s/demo/frontend/
 kubectl apply -f k8s/demo/ingress.yaml
-
-# 4. Add hosts entry + tunnel
-echo "$(minikube ip)  kubecart.local" | sudo tee -a /etc/hosts
-sudo minikube tunnel
 ```
 
-App: **http://kubecart.local**
+### 4. Access the app
+
+```bash
+# Option A — port-forward (no sudo)
+kubectl port-forward -n ingress-nginx svc/ingress-nginx-controller 8080:80
+# Open: http://localhost:8080
+
+# Option B — Minikube tunnel
+echo "$(minikube ip)  kubecart.local" | sudo tee -a /etc/hosts
+sudo minikube tunnel
+# Open: http://kubecart.local
+```
+
+### 5. Verify
+
+```bash
+kubectl get pods -n demo          # all pods Running
+kubectl get ingress -n demo       # kubecart-ingress has ADDRESS
+```
 
 ---
 
@@ -122,38 +197,41 @@ App: **http://kubecart.local**
 bash deploy-monitoring.sh
 ```
 
-Grafana at `http://$(minikube ip):32000` — login `admin / admin`  
-Dashboard: **KubeCart — Service Overview**
-
----
-
-## Health Checks
-
 ```bash
-curl http://localhost:5001/health   # identity
-curl http://localhost:5002/health   # catalog
-curl http://localhost:5003/health   # order
+kubectl port-forward -n monitoring svc/kubecart-monitoring-grafana 3000:80
+# Open: http://localhost:3000  (admin / admin)
+# Dashboard: KubeCart — Service Overview
 ```
 
 ---
 
-## Project Structure
+## Environment Variables
 
-```
-kubecart-devops-ab/
-├── identity-service/       # .NET 10 — JWT auth
-├── catalog-service/        # .NET 10 — products & categories
-├── order-service/          # .NET 10 — cart, checkout, orders
-├── ui/                     # React 19 + Vite 8 SPA
-├── k8s/demo/
-│   ├── identity/           # deployment, service, configmap
-│   ├── catalog/            # deployment (2 replicas), service, configmap
-│   ├── order/              # deployment, service, configmap
-│   ├── frontend/           # deployment, service, configmap
-│   ├── monitoring/         # prometheus-values.yaml, grafana dashboard
-│   ├── namespace.yaml
-│   ├── secret.yaml
-│   └── ingress.yaml
-├── start-local.sh
-└── deploy-monitoring.sh
-```
+All services load config exclusively from environment variables. See each service's `.env.example` for the full list. No values are hardcoded.
+
+| Variable | Services | Description |
+|---|---|---|
+| `DB_HOST` | all | SQL Server host + port e.g. `localhost,1433` |
+| `DB_NAME` | all | Database name |
+| `DB_USER` | all | SQL login |
+| `DB_PASSWORD` | all | SQL password |
+| `JWT_SIGNING_KEY` | identity, order | HMAC-SHA256 key for JWT signing/validation |
+| `APP_ENCRYPTION_KEY` | identity | AES-256 key for PII encryption |
+| `CATALOG_SERVICE_URL` | order | Base URL of catalog-service |
+| `ASPNETCORE_URLS` | all | Bind address e.g. `http://+:5001` |
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Backend | .NET 10 Minimal API |
+| ORM | Dapper + raw SQL |
+| Database | SQL Server 2022 |
+| Frontend | React 19, Vite 8, React Router v7 |
+| Auth | JWT HS256 (7-day expiry) |
+| Containers | Docker (multi-stage builds) |
+| Orchestration | Kubernetes — Deployments, Services, ConfigMaps, Secrets, Ingress |
+| Cluster | Minikube (docker driver) |
+| Monitoring | prometheus-net.AspNetCore + kube-prometheus-stack (Helm) |
