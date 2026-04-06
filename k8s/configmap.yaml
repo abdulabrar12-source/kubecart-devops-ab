@@ -1,3 +1,0 @@
-# DEPRECATED — Original Todo API ConfigMap (name: todo-api-config, namespace: default).
-# Had DB_NAME: master. Superseded by per-service KubeCart ConfigMaps.
-# Run: git rm k8s/configmap.yaml

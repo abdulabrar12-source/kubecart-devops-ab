@@ -22,7 +22,7 @@ spec:
       containers:
         - name: identity-service
           image: identity-service:latest
-          imagePullPolicy: Never          # image pre-loaded into minikube via: minikube image load
+          imagePullPolicy: Never
           ports:
             - containerPort: 80
           # Non-secret config injected from ConfigMap
